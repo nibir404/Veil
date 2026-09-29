@@ -33,22 +33,26 @@
 ## 3. Core Subsystems & Architecture
 
 ```
-src/
-├── main.js         # Entry point, game loop, scene management, input capture, menus
-├── world.js        # Procedural Old Dhaka city generator, street grid, MRT viaduct, traffic, shaders
-├── player.js       # Raven controller: 3rd-person movement, parkour/climbing, stance, health, weapons
-├── ai.js           # 6-state awareness FSM, sight/hearing perception, squad radio, Cartographer AI
-├── combat.js       # Raycasting, projectile trajectories, damage calculations, takedowns, explosions
-├── veil.js         # Veil State policy: time dilation, Focus cost/generation, heartbeat triggers
-├── weather.js      # Monsoon rain simulation, puddles/wetness shader, lightning exposure, fog
-├── fx.js           # Visual effects: muzzle flash, tracers, physical shell casings, blood decals, post-proc
-├── audio.js        # Pure WebAudio procedural soundscape: rain beds, traffic, Karplus-Strong dotara, tabla
-├── ui.js           # Diegetic HUD, awareness arcs, intelligence board, document viewer, CCTV feed
-├── mission01.js    # Mission 01 script: objectives, intel pickups, surreal sequences, debrief
-├── missions.js     # Campaign operations archive: 10-mission progression records
-├── characters.js   # Character models and procedural geometric representations
-├── style.css       # Complete UI theme, HUD overlays, typography (Rajdhani, JetBrains Mono, Hind Siliguri)
-└── util.js         # Math, spatial helpers, raycasting utilities
+Veil/
+├── .agents/skills/     # Workspace skills (changelog-memory)
+├── scripts/
+│   └── memory.js       # Memory & Changelog CLI tool (status, log, next, check)
+├── src/
+│   ├── main.js         # Entry point, game loop, scene management, input capture, menus
+│   ├── world.js        # Procedural Old Dhaka city generator, street grid, MRT viaduct, traffic, shaders
+│   ├── player.js       # Raven controller: 3rd-person movement, parkour/climbing, stance, health, weapons
+│   ├── ai.js           # 6-state awareness FSM, sight/hearing perception, squad radio, Cartographer AI
+│   ├── combat.js       # Raycasting, projectile trajectories, damage calculations, takedowns, explosions
+│   ├── veil.js         # Veil State policy: time dilation, Focus cost/generation, heartbeat triggers
+│   ├── weather.js      # Monsoon rain simulation, puddles/wetness shader, lightning exposure, fog
+│   ├── fx.js           # Visual effects: muzzle flash, tracers, physical shell casings, blood decals, post-proc
+│   ├── audio.js        # Pure WebAudio procedural soundscape: rain beds, traffic, Karplus-Strong dotara, tabla
+│   ├── ui.js           # Diegetic HUD, awareness arcs, intelligence board, document viewer, CCTV feed
+│   ├── mission01.js    # Mission 01 script: objectives, intel pickups, surreal sequences, debrief
+│   ├── missions.js     # Campaign operations archive: 10-mission progression records
+│   ├── characters.js   # Character models and procedural geometric representations
+│   ├── style.css       # Complete UI theme, HUD overlays, typography (Rajdhani, JetBrains Mono, Hind Siliguri)
+│   └── util.js         # Math, spatial helpers, raycasting utilities
 ```
 
 ### Key Subsystem Mechanics
@@ -81,10 +85,21 @@ src/
 
 ---
 
-## 7. Evolution & Decision Log
+## 7. Active Objectives & Next Steps
 
-- **2026-09-29**:
-  - Initialized official public Git repository linked to `https://github.com/nibir404/Veil.git`.
-  - Created standardized `docs/MEMORY.md` persistent memory record following the `codebase-memory` specification.
-  - Refactored `.gitignore` to protect against unwanted OS artifacts and local environment overrides.
-  - Authored comprehensive production README showcasing the prototype, design bible, mechanics, controls, and UE5 transition roadmap.
+- [x] Initial public release of browser vertical slice & 10-mission design bible.
+- [x] Initialize Git repository linked to `https://github.com/nibir404/Veil.git`.
+- [x] Establish persistent memory & changelog architecture with automated tooling (`scripts/memory.js`).
+- [ ] Add player volume/sound FX toggles in pause menu.
+- [ ] Implement optional keybinding customization for accessibility.
+- [ ] Expand Old Dhaka bazaar alley clutter and procedural neon signage variations.
+
+---
+
+## 8. Evolution & Decision Log (Changelog)
+
+### [2026-09-29] FEAT: Memory Skill, Changelog CLI & Repository Initialization
+- **Description**: Initialized Git repository, authored comprehensive showcase README, built `docs/MEMORY.md`, and engineered `scripts/memory.js` changelog tracking CLI.
+- **Files Touched**: `README.md`, `docs/MEMORY.md`, `.gitignore`, `package.json`, `scripts/memory.js`
+- **Key Decisions / Notes**: Standardized on a dual-mode workflow (Boot/Resume check at turn start + Atomic Log at pre-commit).
+- **Verification**: `npm run build` passes with zero errors; remote repository synced.
