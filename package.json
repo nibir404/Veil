@@ -1,0 +1,20 @@
+{
+  "name": "veil",
+  "version": "1.0.0",
+  "description": "VEIL — vertical slice (Mission 01: The City That Never Sleeps)",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.21"
+  },
+  "type": "module"
+}
