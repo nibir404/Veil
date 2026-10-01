@@ -1,12 +1,13 @@
 {
   "name": "veil",
   "version": "1.0.0",
-  "description": "VEIL — vertical slice (Mission 01: The City That Never Sleeps)",
+  "description": "VEIL \u2014 vertical slice (Mission 01: The City That Never Sleeps)",
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview",
-    "memory": "node scripts/memory.js"
+    "memory": "node scripts/memory.js",
+    "test": "node --test tests/*.test.js"
   },
   "keywords": [],
   "author": "",

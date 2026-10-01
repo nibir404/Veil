@@ -6,6 +6,11 @@ const SCALE = [146.83, 155.56, 174.61, 196.0, 220.0, 233.08, 261.63, 293.66, 311
 export class Audio {
   constructor() {
     this.ready = false;
+    this.volume = 0.25; this.calmEnabled = true;
+    try { const saved = JSON.parse(localStorage.getItem('veil.audio') || '{}');
+      if (Number.isFinite(saved.volume)) this.volume = Math.max(0,Math.min(1,saved.volume));
+      if (typeof saved.calm === 'boolean') this.calmEnabled = saved.calm;
+    } catch {}
     this.veil = 0;
     this.tension = 0;
     this.combat = 0;
@@ -16,7 +21,7 @@ export class Audio {
   init() {
     if (this.ready) return;
     const ctx = (this.ctx = new (window.AudioContext || window.webkitAudioContext)());
-    this.master = ctx.createGain(); this.master.gain.value = 0.9;
+    this.master = ctx.createGain(); this.master.gain.value = this.volume;
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
     this.master.connect(comp).connect(ctx.destination);
 
@@ -45,10 +50,24 @@ export class Audio {
     // positional generator hum
     this.gen = this.hum([50, 100, 150], 0.0);
     this.drone = this.makeDrone();
+    // A soft, slowly breathing consonant pad under exploration; no sharp attacks.
+    this.calm = ctx.createGain(); this.calm.gain.value = 0; this.calm.connect(this.music);
+    for (const freq of [146.83,220,293.66,369.99]) {
+      const osc=ctx.createOscillator(), gain=ctx.createGain(); osc.type='sine';osc.frequency.value=freq;
+      gain.gain.value=0.045;osc.connect(gain).connect(this.calm);osc.start();
+    }
     this.nextPluck = 4; this.nextFlute = 12; this.nextHonk = 1; this.nextBell = 3; this.nextBeat = 0; this.beatStep = 0;
     this.nextHeart = 0;
     this.ready = true;
   }
+
+  setVolume(value) {
+    this.volume=Math.max(0,Math.min(1,value));
+    if(this.ready)this.master.gain.setTargetAtTime(this.volume,this.ctx.currentTime,.1);
+    this.savePreferences();
+  }
+  setCalm(enabled) { this.calmEnabled=enabled;this.savePreferences(); }
+  savePreferences() { try { localStorage.setItem('veil.audio',JSON.stringify({volume:this.volume,calm:this.calmEnabled})); } catch {} }
 
   makeNoise(sec) {
     const b = this.ctx.createBuffer(1, this.ctx.sampleRate * sec, this.ctx.sampleRate);
@@ -292,7 +311,8 @@ export class Audio {
       const L = this.listener; const d = Math.hypot(st.genPos.x - L.x, st.genPos.y - L.y, st.genPos.z - L.z);
       this.gen.g.gain.setTargetAtTime(st.genOn ? Math.max(0, 1 - d / 28) ** 2 * 0.5 : 0, t, 0.2);
     }
-    this.drone.gain.setTargetAtTime(0.08 + this.tension * 0.25 + this.combat * 0.1, t, 1.5);
+    this.drone.gain.setTargetAtTime(0.025 + this.tension * 0.16 + this.combat * 0.1, t, 1.5);
+    this.calm.gain.setTargetAtTime(this.calmEnabled && !st.silence ? (1-this.combat)*(1-v)*(0.65+Math.sin(t*.12)*.12) : 0,t,1.5);
 
     // heartbeat: rate rises with stress; scheduled on real time
     this.nextHeart -= dt;
@@ -305,7 +325,7 @@ export class Audio {
     if (this.nextPluck <= 0 && this.combat < 0.5 && v < 0.2) {
       const base = Math.floor(Math.random() * 5);
       const phrase = [0, 2, 1, 3, 2, 0].slice(0, 3 + Math.floor(Math.random() * 3));
-      phrase.forEach((k, i) => setTimeout(() => this.pluck(SCALE[(base + k) % SCALE.length], 0.18), i * (260 + Math.random() * 120)));
+      phrase.forEach((k, i) => setTimeout(() => this.pluck(SCALE[(base + k) % SCALE.length], 0.08), i * (260 + Math.random() * 120)));
       this.nextPluck = 9 + Math.random() * 10;
     }
     this.nextFlute -= dt;

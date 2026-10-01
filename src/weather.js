@@ -14,8 +14,9 @@ export class Weather {
     this.nextLightning = 18;
     this.schedule = [];        // [{at, to}] authored weather changes during the mission
     this.clock = 0;
+    this.roofs = world.colliders.filter(b => ['building','canopy','deck','stall'].includes(b.tag));
 
-    const N = 9000;
+    const N = world.quality.rain;
     this.N = N;
     this.drops = new Float32Array(N * 3);
     this.speeds = new Float32Array(N);
@@ -67,7 +68,7 @@ export class Weather {
 
     // fog and wetness follow rain
     const fog = this.scene.fog;
-    fog.density = lerp(0.012, 0.026, I) + veil * 0.004;
+    fog.density = lerp(0.007, 0.014, I) + veil * 0.004;
     this.world.rain = I;
     this.world.wetness = damp(this.world.wetness, lerp(0.35, 1, this.intensity) * (1 - this.dryOverride), this.dryOverride > 0.5 ? 20 : 0.5, realDt);
     this.audio.rain = I;
@@ -88,6 +89,8 @@ export class Weather {
       const rx = ((x - camPos.x + 30) % 60 + 60) % 60 - 30, rz = ((z - camPos.z + 30) % 60 + 60) % 60 - 30;
       x = camPos.x + rx; z = camPos.z + rz;
       const o = i * 6;
+      const roof = this.roofs.find(b => x >= b.min.x && x <= b.max.x && z >= b.min.z && z <= b.max.z && y < b.max.y);
+      if (roof) { P[o+1] = P[o+4] = -100; continue; }
       P[o] = x; P[o + 1] = y; P[o + 2] = z;
       P[o + 3] = x - wx * streak; P[o + 4] = y + sp * streak; P[o + 5] = z - wz * streak;
     }

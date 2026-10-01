@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { detailRaven } from './raven-detail.js';
 import { rand, pick, lerp, damp, canvasTex } from './util.js';
 
 // Procedural humanoid rig. Stand-in for MetaHuman + motion matching in the UE5 build:
@@ -204,6 +205,8 @@ export function makeHumanoid(kind = 'civilian', opts = {}) {
 
   const rig = { root, hips, spine, neck, head, arms, legs, umbrella: umbrellaMesh, shadow, kind, phase: rand() * 10, weapon: null, deadT: 0, lean: 0,
     p: { crouch: 0, aim: 0, climb: 0, dead: 0, speed: 0 } };
+  if (kind === 'raven') detailRaven(rig);
+  root.traverse(o => { if (o.isMesh && o !== shadow) { o.castShadow = kind === 'raven' || kind === 'guard' || kind === 'target'; o.receiveShadow = true; } });
   return rig;
 }
 
@@ -218,7 +221,7 @@ const BLOB = new THREE.MeshBasicMaterial({
 
 export function attachWeapon(rig, type) {
   if (rig.weapon) rig.arms.R.hand.remove(rig.weapon);
-  if (!type) { rig.weapon = null; return; }
+  if (!type) { rig.weapon = null; rig.weaponType = null; return; }
   const w = makeWeaponMesh(type);
   w.rotation.x = -Math.PI / 2;
   rig.arms.R.hand.add(w);
@@ -280,6 +283,19 @@ export function animate(rig, s, dt) {
     A.elbow.rotation.x = ex;
   }
 
+  if (s.reload > 0) {
+    const reach = Math.sin(Math.PI * s.reload);
+    arms.R.upper.rotation.x = -1.0; arms.R.elbow.rotation.x = -0.8;
+    arms.L.upper.rotation.x = -0.6 - reach * 0.9;
+    arms.L.upper.rotation.z = -0.5; arms.L.elbow.rotation.x = -1.3;
+  }
+  if (s.recoil > 0 && s.aim) { arms.R.upper.rotation.x -= s.recoil * 0.13; spine.rotation.x -= s.recoil * 0.025; }
+  if (s.airborne) { legs.L.thigh.rotation.x = -0.5; legs.R.knee.rotation.x = 0.8; }
+  if (s.slide) {
+    hips.position.y = 0.48; spine.rotation.x = -0.32;
+    legs.L.thigh.rotation.x = -1.3; legs.R.thigh.rotation.x = -0.8;
+    legs.L.knee.rotation.x = 0.15; legs.R.knee.rotation.x = 1.6;
+  }
   // Death: fold to ground. Root yaw is preserved so the body keeps its facing.
   if (p.dead > 0.001) {
     hips.rotation.x = -p.dead * Math.PI / 2 * 0.98;

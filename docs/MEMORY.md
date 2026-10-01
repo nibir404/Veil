@@ -1,6 +1,6 @@
 # VEIL — Persistent Codebase Memory
 
-> **Last Updated**: 2026-09-29  
+> **Last Updated**: 2026-10-01  
 > **Status**: Active & Evergreen  
 > **Repository**: [https://github.com/nibir404/Veil.git](https://github.com/nibir404/Veil.git)
 
@@ -50,6 +50,7 @@ Veil/
 │   ├── ui.js           # Diegetic HUD, awareness arcs, intelligence board, document viewer, CCTV feed
 │   ├── mission01.js    # Mission 01 script: objectives, intel pickups, surreal sequences, debrief
 │   ├── missions.js     # Campaign operations archive: 10-mission progression records
+│   ├── raven-detail.js # Raven-specific tactical equipment and facial detailing
 │   ├── characters.js   # Character models and procedural geometric representations
 │   ├── style.css       # Complete UI theme, HUD overlays, typography (Rajdhani, JetBrains Mono, Hind Siliguri)
 │   └── util.js         # Math, spatial helpers, raycasting utilities
@@ -97,6 +98,13 @@ Veil/
 ---
 
 ## 8. Evolution & Decision Log (Changelog)
+
+### [2026-10-01] FEAT: Original Raven tactical character detailing
+- **Description**: Added shaped carrier, woven equipment materials, pouches, hydration pack, radio, scarf, earpiece, facial details, Bangladesh patch, gloves, knee pads, and boots to Raven's existing animated rig.
+- **Files Touched**: `src/raven-detail.js`, `src/characters.js`, `docs/MEMORY.md`.
+- **Key Decisions / Notes**: Original procedural design inspired by user-supplied tactical references; face remains exposed for story identification. This is prototype geometry, not a photoreal scanned asset. Cleared weapon type when holstering to allow same-weapon reattachment.
+- **Verification**: Production build passed (existing bundle-size warning). Headless rig construction and finite-transform checks passed across walking, crouching, aiming, climbing, death; weapon reattachment checked. Visual browser inspection not performed.
+
 
 ### [2026-09-29] FEAT: Memory Skill, Changelog CLI & Repository Initialization
 - **Description**: Initialized Git repository, authored comprehensive showcase README, built `docs/MEMORY.md`, and engineered `scripts/memory.js` changelog tracking CLI.

@@ -17,12 +17,21 @@
 <div id="hud">
   <div id="obj"></div>
   <div id="aware"></div>
+  <div id="navigation"><span id="navArrow">↑</span><div><b id="navTitle"></b><span id="navDistance"></span><p id="navHint"></p></div></div>
   <div id="toast"></div>
   <div id="subs"></div>
   <div id="fragment"></div>
   <div id="prompt"></div>
   <div id="xh"><i></i></div>
   <div id="scope"></div>
+  <!-- GTA Vice City Style Circular Mini-map -->
+  <div id="minimap-wrap" title="Click to toggle radar zoom (Z)">
+    <canvas id="minimap-canvas"></canvas>
+    <div id="minimap-info">
+      <div id="minimap-district">RIVER ROAD</div>
+      <div id="minimap-district-bn">নদীর রাস্তা</div>
+    </div>
+  </div>
   <div id="vitals">
     <div class="bar hpbar"><div id="hp"></div></div>
     <div class="bar vcbar"><div id="vc"></div><span>VEIL</span></div>
@@ -30,8 +39,8 @@
   </div>
   <div id="wpn"></div>
   <div id="keys">
-    <b>WASD</b> move · <b>SHIFT</b> sprint · <b>C</b> crouch · <b>SPACE</b> jump / climb / vault · <b>RMB</b> aim · <b>LMB</b> fire · <b>R</b> reload · <b>1/2</b> weapons · <b>V</b> shoulder<br>
-    <b>F</b> takedown · <b>E</b> interact · <b>G</b> drag body · <b>X</b> (hold) observe &amp; tag · <b>Q</b> Veil State · <b>TAB</b> intelligence board · <b>H</b> hide this
+    <b>WASD</b> move · <b>SHIFT</b> sprint · <b>C</b> crouch · <b>CTRL</b> sprint-slide · <b>SPACE</b> jump / climb / vault · <b>RMB</b> aim · <b>LMB</b> fire · <b>R</b> reload · <b>1/2</b> weapons · <b>V</b> shoulder<br>
+    <b>F</b> takedown · <b>E</b> interact · <b>G</b> drag body · <b>X</b> (hold) observe &amp; tag · <b>Q</b> Veil State · <b>TAB</b> intelligence board · <b>Z</b> radar zoom · <b>M</b> district map · <b>H</b> hide this
   </div>
 </div>
 <div class="bars"><div></div><div></div></div>
@@ -69,6 +78,7 @@
 </section>
 
 <!-- MODALS -->
+<section id="map" class="modal"><div class="district-map"><header><span>FIELD MAP / OLD DHAKA</span><button id="mapClose">CLOSE [M]</button></header><div class="map-mission"><b id="mapObjective"></b><p id="mapInstruction"></p></div><canvas id="mapCanvas" width="1000" height="620"></canvas><p id="mapRouteNote"></p><p>N ↑ · BURIGANGA TO THE SOUTH · A compressed fictional mission district, inspired by Old Dhaka.</p></div></section>
 <section id="doc" class="modal"><div class="paper"><h3 id="docT"></h3><div id="docB"></div><p id="docS"></p><button id="docClose">CLOSE [E]</button></div></section>
 <section id="cctv" class="modal"><div class="crt"><canvas id="cctvC" width="720" height="405"></canvas><button id="cctvClose">DISCONNECT [E]</button></div></section>
 <section id="board" class="modal">
@@ -76,6 +86,9 @@
 </section>
 <section id="pause" class="modal">
   <div class="menu"><h2>PAUSED</h2><button id="resume">RESUME</button><button id="restart">RESTART MISSION</button><button id="toTitle">QUIT TO TITLE</button>
+  <label class="quality-label">VOLUME <input id="volume" type="range" min="0" max="100" value="25" aria-label="Master volume"><output id="volumeValue">25%</output></label>
+  <label class="quality-label"><input id="calmAudio" type="checkbox" checked> CALM AMBIENCE</label>
+  <label class="quality-label">GRAPHICS <select id="quality"><option value="high">High</option><option value="balanced">Balanced</option><option value="low">Performance</option></select></label><small>Changing graphics restarts the mission.</small>
   <p class="keys">WASD move · SHIFT sprint · C crouch · SPACE jump / climb / vault (hold against walls) · RMB aim · LMB fire · R reload · 1/2 weapons · V shoulder · F takedown · E interact · G drag body · X hold to observe &amp; tag · Q Veil State · TAB intelligence board</p></div>
 </section>
 <section id="dead" class="modal">

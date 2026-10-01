@@ -51,29 +51,26 @@ const _inv = new THREE.Vector3();
 export function rayBoxes(origin, dir, maxDist, boxes, filter) {
   let best = null;
   let bestT = maxDist;
-  _inv.set(1 / dir.x, 1 / dir.y, 1 / dir.z);
-  for (let i = 0; i < boxes.length; i++) {
-    const b = boxes[i];
-    if (filter && !filter(b)) continue;
-    let t1 = (b.min.x - origin.x) * _inv.x, t2 = (b.max.x - origin.x) * _inv.x;
-    let tmin = Math.min(t1, t2), tmax = Math.max(t1, t2), axis = 0;
-    t1 = (b.min.y - origin.y) * _inv.y; t2 = (b.max.y - origin.y) * _inv.y;
-    let ty0 = Math.min(t1, t2), ty1 = Math.max(t1, t2);
-    if (ty0 > tmin) { tmin = ty0; axis = 1; }
-    tmax = Math.min(tmax, ty1);
-    t1 = (b.min.z - origin.z) * _inv.z; t2 = (b.max.z - origin.z) * _inv.z;
-    let tz0 = Math.min(t1, t2), tz1 = Math.max(t1, t2);
-    if (tz0 > tmin) { tmin = tz0; axis = 2; }
-    tmax = Math.min(tmax, tz1);
-    if (tmax >= Math.max(tmin, 0) && tmin < bestT) {
-      if (tmin < 0) continue; // origin inside box: ignore (camera / eye inside geometry)
-      bestT = tmin;
-      const n = new THREE.Vector3();
-      if (axis === 0) n.x = dir.x > 0 ? -1 : 1;
-      else if (axis === 1) n.y = dir.y > 0 ? -1 : 1;
-      else n.z = dir.z > 0 ? -1 : 1;
-      best = { t: tmin, box: b, normal: n };
+  for (const box of boxes) {
+    if (filter && !filter(box)) continue;
+    let near = -Infinity, far = Infinity, axis = 'x', valid = true;
+    for (const key of ['x', 'y', 'z']) {
+      if (Math.abs(dir[key]) < 1e-10) {
+        if (origin[key] < box.min[key] || origin[key] > box.max[key]) { valid = false; break; }
+        continue;
+      }
+      const t1 = (box.min[key] - origin[key]) / dir[key];
+      const t2 = (box.max[key] - origin[key]) / dir[key];
+      const entry = Math.min(t1, t2);
+      if (entry > near) { near = entry; axis = key; }
+      far = Math.min(far, Math.max(t1, t2));
+      if (near > far) { valid = false; break; }
     }
+    if (!valid || far < 0 || !Number.isFinite(near)) continue;
+    const t = Math.max(0, near);
+    if (t >= bestT) continue;
+    const normal = new THREE.Vector3(); normal[axis] = dir[axis] > 0 ? -1 : 1;
+    bestT = t; best = { t, box, normal };
   }
   return best;
 }
@@ -92,6 +89,7 @@ export function raySphere(o, d, c, r) {
   const ox = o.x - c.x, oy = o.y - c.y, oz = o.z - c.z;
   const b = ox * d.x + oy * d.y + oz * d.z;
   const cc = ox * ox + oy * oy + oz * oz - r * r;
+  if (cc <= 0) return 0;
   const h = b * b - cc;
   if (h < 0) return -1;
   const t = -b - Math.sqrt(h);

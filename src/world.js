@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { buildDhaka, updateDhaka } from './dhaka.js';
+import { qualitySettings } from './quality.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { Box, rand, rr, ri, pick, canvasTex, grime, segmentClear, clamp, mulberry32 } from './util.js';
 import { makeHumanoid, animate } from './characters.js';
@@ -146,6 +148,7 @@ const GroundShader = {
       return acc;
     }
     void main(){
+      if (vWorld.z < -43.0) discard;
       vec2 muv = (vWorld.xz - mapMin)/mapSize;
       vec3 albedo = texture2D(tMask, muv).rgb;
       float det = texture2D(tDetail, vWorld.xz/3.0).r;
@@ -177,7 +180,7 @@ const GroundShader = {
 };
 
 export class World {
-  constructor(scene, renderer, quality = 1) {
+  constructor(scene, renderer, quality = 'high') {
     this.scene = scene;
     this.renderer = renderer;
     this.colliders = [];
@@ -194,7 +197,7 @@ export class World {
     this.wetness = 1;
     this.rain = 1;
     this.lightning = 0;
-    this.quality = quality;
+    this.quality = qualitySettings(quality);
     this.group = new THREE.Group();
     scene.add(this.group);
 
@@ -204,7 +207,7 @@ export class World {
     this.buildBlocks();
     this.buildBoundary();
     this.buildStreets();
-    this.buildMetro();
+    buildDhaka(this);
     this.buildTraffic();
     this.flushInstances();
     this.buildCableMesh();
@@ -212,18 +215,23 @@ export class World {
     this.buildNav();
   }
 
+  resize() {
+    const size = new THREE.Vector2(); this.renderer.getDrawingBufferSize(size);
+    this.ground.getRenderTarget().setSize(Math.max(1,Math.floor(size.x*this.quality.reflection)),Math.max(1,Math.floor(size.y*this.quality.reflection)));
+  }
+
   // ---------------------------------------------------------------- materials
   initMaterials() {
     this.facades = PALETTE.map((c, i) => {
       const t = facadeTextures(c, 100 + i);
-      return new THREE.MeshStandardMaterial({ map: t.color, emissiveMap: t.emissive, emissive: 0xffffff, emissiveIntensity: 1.1, roughness: 0.88 });
+      return new THREE.MeshStandardMaterial({ map: t.color, emissiveMap: t.emissive, emissive: 0xffffff, emissiveIntensity: 1.1, roughness: 0.88, bumpMap: t.color, bumpScale: 0.045 });
     });
     const roofTex = canvasTex(256, 256, (g, w, h) => {
       g.fillStyle = '#6d6a64'; g.fillRect(0, 0, w, h);
       for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(${40 + rand() * 30},${45 + rand() * 30},${40 + rand() * 20},${rand() * 0.3})`; g.beginPath(); g.arc(rand() * w, rand() * h, 5 + rand() * 40, 0, 7); g.fill(); }
       grime(g, w, h, 1);
     });
-    this.roofMat = new THREE.MeshStandardMaterial({ map: roofTex, roughness: 0.55, metalness: 0.05 });
+    this.roofMat = new THREE.MeshStandardMaterial({ map: roofTex, bumpMap: roofTex, bumpScale: 0.04, roughness: 0.55, metalness: 0.05 });
     this.darkMat = new THREE.MeshStandardMaterial({ color: '#15171a', roughness: 0.9 });
     const walkTex = canvasTex(128, 128, (g, w, h) => {
       g.fillStyle = '#6a6660'; g.fillRect(0, 0, w, h);
@@ -232,7 +240,7 @@ export class World {
       grime(g, w, h, 1);
     });
     walkTex.repeat.set(1, 1);
-    this.walkMat = new THREE.MeshStandardMaterial({ map: walkTex, roughness: 0.28, metalness: 0.0 });
+    this.walkMat = new THREE.MeshStandardMaterial({ map: walkTex, bumpMap: walkTex, bumpScale: 0.028, roughness: 0.28, metalness: 0.0 });
     this.concreteMat = new THREE.MeshStandardMaterial({ color: '#7d7a74', roughness: 0.8 });
     this.metalMat = new THREE.MeshStandardMaterial({ color: '#3a3d40', roughness: 0.45, metalness: 0.7 });
     this.tankMat = new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.45 });
@@ -316,7 +324,7 @@ export class World {
     // Environment map for wet-surface reflections: dark sky + neon/sodium blobs.
     const envScene = new THREE.Scene();
     envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 16, 8), new THREE.MeshBasicMaterial({ color: '#1a1a22', side: THREE.BackSide })));
-    const cols = ['#ff9a40', '#ffb060', '#40ffd0', '#ff3050', '#e0f0ff', '#ffcc80'];
+    const cols = ['#e6b878', '#d7bc91', '#a4c4bc', '#9e806d', '#afc5d5', '#e6cc9e'];
     for (let i = 0; i < 40; i++) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(rr(2, 8), rr(1, 4)), new THREE.MeshBasicMaterial({ color: pick(cols), side: THREE.DoubleSide }));
       const a = rand() * Math.PI * 2; m.position.set(Math.cos(a) * 40, rr(-4, 14), Math.sin(a) * 40); m.lookAt(0, 0, 0);
@@ -366,7 +374,7 @@ export class World {
     }, { linear: true });
 
     const geo = new THREE.PlaneGeometry(MAP.maxX - MAP.minX + 40, MAP.maxZ - MAP.minZ + 40);
-    const scale = 0.42 * this.quality;
+    const scale = this.quality.reflection;
     this.ground = new Reflector(geo, {
       textureWidth: Math.floor(innerWidth * devicePixelRatio * scale), textureHeight: Math.floor(innerHeight * devicePixelRatio * scale),
       clipBias: 0.003, shader: GroundShader,
@@ -396,6 +404,7 @@ export class World {
     const fm = this.facades[style];
     const mesh = new THREE.Mesh(geo, [fm, fm, this.roofMat, this.darkMat, fm, fm]);
     mesh.position.set((x0 + x1) / 2, h / 2, (z0 + z1) / 2);
+    mesh.castShadow = true; mesh.receiveShadow = true;
     this.group.add(mesh);
     const box = this.addCollider(new Box(x0, 0, z0, x1, h, z1, { tag: 'building', climbable: opts.climbable !== false }));
     const b = { x0, x1, z0, z1, h, box, mesh, roof: [] };
@@ -539,6 +548,7 @@ export class World {
     const designedRow = { sx: 1, sz: 1, row: 1 };
     for (const sz of [-1, 1]) for (const sx of [-1, 1]) {
       ROWS.forEach(([r0, r1], row) => {
+        if (sz === -1 && row === 2) return; // Buriganga quay replaces the southern grid row.
         const isDesigned = sx === designedRow.sx && sz === designedRow.sz && row === designedRow.row;
         let lots = [];
         if (isDesigned) {
@@ -647,7 +657,7 @@ export class World {
   buildBoundary() {
     // Outer towers: skyline and hard play-space boundary (not climbable).
     const ring = [];
-    for (let x = MAP.minX - 20; x < MAP.maxX + 20; x += rr(10, 16)) { ring.push([x, MAP.maxZ + 0.5, 'n']); ring.push([x, MAP.minZ - 0.5, 's']); }
+    for (let x = MAP.minX - 20; x < MAP.maxX + 20; x += rr(10, 16)) { ring.push([x, MAP.maxZ + 0.5, 'n']); }
     for (let z = MAP.minZ; z < MAP.maxZ; z += rr(10, 16)) { ring.push([MAP.maxX + 0.5, z, 'e']); ring.push([MAP.minX - 0.5, z, 'w']); }
     for (const [x, z, s] of ring) {
       const w = rr(10, 16), d = rr(10, 18), h = ri(6, 16) * 3;
@@ -665,21 +675,7 @@ export class World {
     this.addCollider(new Box(MAP.maxX, -5, MAP.minZ - 30, MAP.maxX + 30, H, MAP.maxZ + 30, { climbable: false, tag: 'bound' }));
     this.addCollider(new Box(MAP.minX - 30, -5, MAP.minZ - 30, MAP.minX, H, MAP.maxZ + 30, { climbable: false, tag: 'bound' }));
 
-    // Distant mosque silhouette with green minaret lights, over the south skyline.
-    const mg = new THREE.Group();
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(9, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#b8b8b0', roughness: 0.6 }));
-    dome.position.y = 42;
-    const baseM = new THREE.Mesh(new THREE.BoxGeometry(22, 42, 22), new THREE.MeshStandardMaterial({ color: '#a8a49a', roughness: 0.8 }));
-    baseM.position.y = 21;
-    mg.add(dome, baseM);
-    for (const s of [-1, 1]) {
-      const mn = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.3, 66, 10), baseM.material);
-      mn.position.set(s * 14, 33, 0);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.18, 6, 16), new THREE.MeshBasicMaterial({ color: '#30ff70' }));
-      ring.rotation.x = Math.PI / 2; ring.position.set(s * 14, 60, 0);
-      mg.add(mn, ring);
-    }
-    mg.position.set(-40, 0, -120); this.group.add(mg);
+
   }
 
   // ---------------------------------------------------------------- streets
@@ -747,7 +743,7 @@ export class World {
     // alley lamps: bare bulbs on brackets
     for (const zc of [22, 39, -22, -39, 56, -56]) for (let x = MAP.minX + 10; x < MAP.maxX - 6; x += rr(14, 22)) {
       const zz = zc + (rand() < 0.5 ? -1.8 : 1.8);
-      if (Math.abs(zz) > 57) continue;
+      if (Math.abs(zz) > 57 || zz < -42) continue;
       const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 4), new THREE.MeshBasicMaterial({ color: pick(['#fff2d8', '#e0f4ff']) }));
       bulb.position.set(x, 3.4, zz); this.group.add(bulb);
       const lp = this.lamp(bulb.position.clone(), bulb.material.color.getHexString() === 'fff2d8' ? '#ffcf90' : '#cfe8ff', 9, 1.1, { mesh: bulb, bulb: true });
@@ -757,14 +753,14 @@ export class World {
     // Bazaar: colourful tarps overhead, stalls, crates and produce.
     const tarpCols = ['#1f5fbf', '#e0701a', '#2a8a4a', '#c0203a', '#d0b020'];
     for (let z = 8; z < 54; z += rr(3, 5)) for (const sz of [-1, 1]) {
-      if (rand() < 0.2) continue;
+      if (rand() < 0.2 || sz * z < -36) continue;
       const tarp = new THREE.Mesh(new THREE.PlaneGeometry(rr(4, 6.5), rr(2.5, 4)), new THREE.MeshStandardMaterial({ color: pick(tarpCols), roughness: 0.6, side: THREE.DoubleSide, transparent: true, opacity: 0.92 }));
       tarp.position.set(rr(-1.5, 1.5), rr(3.4, 4.2), sz * z); tarp.rotation.x = -Math.PI / 2 + rr(-0.15, 0.15); tarp.rotation.z = rr(-0.2, 0.2);
       this.group.add(tarp);
       this.animated.push({ type: 'tarp', mesh: tarp, ph: rand() * 6, base: tarp.rotation.x });
     }
     for (let z = 9; z < 53; z += rr(4, 7)) for (const sz of [-1, 1]) for (const sx of [-1, 1]) {
-      if (rand() < 0.3) continue;
+      if (rand() < 0.3 || sz * z < -36) continue;
       this.addStall(sx * 3.6, sz * z, sx);
     }
     // tea stall with benches at the main-road corner (intel #1 lives here)
@@ -928,11 +924,16 @@ export class World {
 
   // ---------------------------------------------------------------- lights
   buildLightPool() {
-    this.hemi = new THREE.HemisphereLight('#5a6a8a', '#1a1612', 0.55);
+    this.hemi = new THREE.HemisphereLight('#5a6a8a', '#1a1612', 0.95);
     this.scene.add(this.hemi);
-    this.moon = new THREE.DirectionalLight('#8aa0c8', 0.35);
+    this.moon = new THREE.DirectionalLight('#bccbda', 1.4);
     this.moon.position.set(-30, 60, 20);
-    this.scene.add(this.moon);
+    this.scene.add(this.moon, this.moon.target);
+    this.moon.castShadow = this.quality.shadows > 0;
+    this.moon.shadow.mapSize.setScalar(this.quality.shadows || 512);
+    Object.assign(this.moon.shadow.camera, {left:-32,right:32,top:32,bottom:-32,near:1,far:130});
+    this.moon.shadow.bias = -0.0003; this.moon.shadow.normalBias = 0.035;
+    this.moon.shadow.camera.updateProjectionMatrix();
     this.pool = [];
     for (let i = 0; i < 12; i++) {
       const l = new THREE.PointLight('#ffffff', 0, 10, 2);
@@ -979,7 +980,7 @@ export class World {
     const cell = 2;
     const nx = Math.floor((MAP.maxX - MAP.minX) / cell), nz = Math.floor((MAP.maxZ - MAP.minZ) / cell);
     const walk = new Uint8Array(nx * nz);
-    const obstacles = this.colliders.filter((b) => b.min.y < 1.0 && b.max.y > 0.3 && b.tag !== 'vehicle' && b.tag !== 'curb');
+    const obstacles = this.colliders.filter((b) => b.tag === 'river' || (b.min.y < 1.0 && b.max.y > 0.3 && b.tag !== 'vehicle' && b.tag !== 'curb'));
     for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
       const x = MAP.minX + (i + 0.5) * cell, z = MAP.minZ + (j + 0.5) * cell;
       let ok = true;
@@ -1065,7 +1066,12 @@ export class World {
     u.ambient.value.setRGB(0.05 + this.lightning * 0.5, 0.055 + this.lightning * 0.5, 0.07 + this.lightning * 0.6);
     this.sky.material.uniforms.time.value = t;
     this.sky.material.uniforms.flash.value = this.lightning;
-    this.hemi.intensity = 0.55 + this.lightning * 3;
+    this.hemi.intensity = 0.95 + this.lightning * 3;
+    if (player) {
+      this.moon.position.copy(player.pos).add(new THREE.Vector3(-28,55,20));
+      this.moon.target.position.copy(player.pos);
+    }
+    updateDhaka(this,t);
     this.updateLights(camPos, dt);
 
     for (const a of this.animated) {
@@ -1099,7 +1105,7 @@ export class World {
     }
     // metro
     const m = this.metro;
-    if (m.wait > 0) { m.wait -= dt; } else {
+    if (!m) { /* Old Dhaka river district has no elevated metro. */ } else if (m.wait > 0) { m.wait -= dt; } else {
       m.x += m.speed * dt; m.mesh.position.x = m.x;
       if (m.x > 300) { m.x = -400; m.wait = rr(40, 70); m.mesh.position.x = m.x; }
     }

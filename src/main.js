@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { qualitySettings, QUALITY } from './quality.js';
+import { SimulationTimers } from './physics.js';
+import { DHAKA_SECTORS } from './dhaka.js';
 import { World } from './world.js';
 import { Player, WEAPONS } from './player.js';
 import { AI } from './ai.js';
@@ -38,17 +41,21 @@ class Input {
 class Game {
   constructor() {
     const q = new URLSearchParams(location.search);
-    this.quality = q.get('q') === 'low' ? 0.6 : 1;
+    this.quality = QUALITY[q.get('q')] ? q.get('q') : 'high';
+    this.settings = qualitySettings(this.quality);
+    this.timers = new SimulationTimers();
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5) * (this.quality < 1 ? 0.7 : 1));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, this.settings.pixelRatio));
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.25;
+    this.renderer.shadowMap.enabled = this.settings.shadows > 0;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     document.getElementById('app').appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2('#1b2230', 0.02);
+    this.scene.fog = new THREE.FogExp2('#37444e', 0.014);
     this.scene.background = null;
     this.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 900);
     this.WEAPONS = WEAPONS;
@@ -80,18 +87,20 @@ class Game {
     });
     this.renderer.domElement.addEventListener('click', () => { if (this.state === 'play' && !this.modal && !document.pointerLockElement) this.lock(); });
     this.bindMenus();
+    if (import.meta.env.DEV && q.has('verify')) import('./verification.js').then(m => m.mountVerification(this));
     this.renderer.setAnimationLoop(() => this.frame());
     document.getElementById('loading').classList.add('gone');
     if (sessionStorage.getItem('veil.retry')) { sessionStorage.removeItem('veil.retry'); this.openBriefing(); }
   }
 
+  after(seconds, fn) { return this.timers.after(seconds, fn); }
   lock() {
     try { const p = this.renderer.domElement.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* needs a user gesture */ }
   }
   resize() {
     this.renderer.setSize(innerWidth, innerHeight);
     this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix();
-    this.post.resize(); this.ui.resize();
+    this.post.resize(); this.ui.resize(); this.world.resize();
   }
 
   // ---------------------------------------------------------------- menus
@@ -103,6 +112,11 @@ class Game {
     $('titleStart').onclick = () => { this.audio.init(); this.openArchive(); };
     $('archiveBack').onclick = () => { this.ui.show('archive', false); this.ui.show('title'); };
     $('briefGo').onclick = () => this.begin();
+    $('volume').value = Math.round(this.audio.volume*100); $('volumeValue').textContent = `${Math.round(this.audio.volume*100)}%`;
+    $('volume').oninput = e => { this.audio.setVolume(Number(e.target.value)/100); $('volumeValue').textContent = `${e.target.value}%`; };
+    $('calmAudio').checked = this.audio.calmEnabled; $('calmAudio').onchange = e => this.audio.setCalm(e.target.checked);
+    $('quality').value = this.quality;
+    $('quality').onchange = e => { const u = new URL(location.href); u.searchParams.set('q', e.target.value); location.href = u.href; };
     $('resume').onclick = () => this.pause(false);
     $('restart').onclick = () => { sessionStorage.setItem('veil.retry', '1'); location.reload(); };
     $('toTitle').onclick = () => location.reload();
@@ -139,6 +153,7 @@ class Game {
     for (const id of ['title', 'archive', 'briefing']) this.ui.show(id, false);
     document.body.classList.add('playing');
     this.state = 'play';
+    this.time = 0; this.weather.clock = 0;
     this.mission.start();
     this.lock();
   }
@@ -152,7 +167,7 @@ class Game {
   closeModal() {
     const was = this.modal;
     this.modal = null;
-    this.ui.show('doc', false); this.ui.show('cctv', false); this.ui.show('board', false);
+    this.ui.show('doc', false); this.ui.show('cctv', false); this.ui.show('board', false); this.ui.show('map', false);
     if (was && this.state === 'play') this.lock();
   }
   onPlayerDeath() {
@@ -187,7 +202,8 @@ class Game {
     const targetDist = P.aiming ? (rifleScope ? 1.1 : 1.55) : P.sprint ? 3.9 : P.climbing ? 4.2 : 3.3;
     c.dist = damp(c.dist, targetDist, 8, dt);
     P.shoulderLerp = damp(P.shoulderLerp, P.shoulder, 10, dt);
-    const pivot = P.pos.clone().add(new THREE.Vector3(0, P.crouch ? 1.2 : 1.62, 0));
+    c.height = damp(c.height ?? 1.62, P.slide ? 0.9 : P.crouch ? 1.15 : 1.62, 14, dt);
+    const pivot = P.pos.clone().add(new THREE.Vector3(0, c.height, 0));
     const side = right.clone().multiplyScalar((P.aiming ? 0.5 : 0.62) * P.shoulderLerp);
     // keep the shoulder offset out of walls
     const sideLen = side.length();
@@ -202,12 +218,13 @@ class Game {
     // handheld: subtle breathing sway, stronger in combat; shake from impacts
     const t = this.realTime;
     const combat = this.ai.squadState >= S.COMBAT ? 1 : 0;
-    const swayA = (0.004 + combat * 0.006) * (1 - this.veil.amount * 0.7) * (rifleScope ? 0.5 : 1);
+    const swayA = (0.0015 + combat * 0.002) * (1 - this.veil.amount * 0.7) * (rifleScope ? 0.5 : 1);
     c.shake = Math.max(0, c.shake - dt * 2.2);
     const sk = c.shake * c.shake * 0.08;
     const look = want.clone().add(fwd);
     look.x += Math.sin(t * 1.3) * swayA + (Math.random() - 0.5) * sk;
     look.y += Math.sin(t * 1.9) * swayA * 0.7 + (Math.random() - 0.5) * sk;
+    look.y += P.recoil * 0.013;
     cam.lookAt(look);
     const fov = (rifleScope ? 24 : P.aiming ? 50 : P.sprint ? 66 : 62) - this.veil.amount * 7;
     c.fov = damp(c.fov, fov, 10, dt);
@@ -233,8 +250,9 @@ class Game {
 
   // ---------------------------------------------------------------- frame
   frame() {
-    const realDt = Math.min(this.clock.getDelta(), 1 / 20);
-    this.realTime += realDt;
+    const realDt = Math.min(this.clock.getDelta(), 0.1);
+    this.presentationTime = (this.presentationTime || 0) + realDt;
+    if (this.state !== 'paused') this.realTime += realDt;
     const inp = this.input;
 
     if (this.state === 'play' && !this.modal) {
@@ -242,6 +260,7 @@ class Game {
       const wdt = realDt * this.veil.worldScale;
       const pdt = realDt * this.veil.playerScale;
       this.time += wdt;
+      this.timers.update(wdt);
       this.player.update(pdt, inp);
       this.handleActions(inp);
       this.ai.update(wdt);
@@ -250,13 +269,14 @@ class Game {
       this.fx.update(wdt);
       this.mission.update(wdt, realDt);
       this.updateCamera(realDt);
+      this.player.weaponUpdate(pdt, inp, null, new THREE.Vector3(Math.cos(this.player.yaw),0,-Math.sin(this.player.yaw)));
       this.updateObserve(realDt, inp);
       this.ui.update(realDt);
       if (this.player.health > 0 && this.time - this.player.lastHurt > 6) this.player.health = Math.min(100, this.player.health + realDt * 6);
       this.post.u.veil.value = this.veil.amount;
       this.post.u.observe.value = this.observe;
     } else if (this.state === 'play' && this.modal) {
-      if (inp.pressed('Escape') || inp.pressed('KeyE') || inp.pressed('Tab') || inp.pressed('Enter') || inp.pressed('Space')) {
+      if (inp.pressed('Escape') || inp.pressed('KeyM') || inp.pressed('KeyE') || inp.pressed('Tab') || inp.pressed('Enter') || inp.pressed('Space')) {
         if (this.modal === 'reveal') this.mission.closeReveal(); else this.closeModal();
       }
       this.mission.update(0, realDt);
@@ -267,6 +287,9 @@ class Game {
       this.world.update(realDt, this.time, this.camera.position, null);
       this.weather.update(realDt, realDt, this.camera.position, 0);
       this.titleCamera(realDt);
+    } else if (this.state === 'inspection') {
+      this.time += realDt; this.world.update(realDt,this.time,this.camera.position,null);
+      this.weather.update(realDt,realDt,this.camera.position,0);
     } else if (this.state === 'debrief' || this.state === 'dead') {
       this.time += realDt * 0.3;
       this.world.update(realDt * 0.3, this.time, this.camera.position, null);
@@ -277,19 +300,21 @@ class Game {
     const honker = this.world.vehicles.find((v) => v.honk || Math.random() < 0.02);
     const bell = this.world.vehicles.find((v) => v.type === 'rickshaw' && v.mesh.position.distanceTo(this.camera.position) < 40);
     for (const v of this.world.vehicles) v.honk = false;
-    this.audio.update(realDt, {
+    if (this.state !== 'paused') this.audio.update(realDt, {
       genPos: this.world.designed.generator, genOn: !this.world.designed.genDead,
       honkPos: honker?.mesh.position, bellPos: bell?.mesh.position,
       lowHealth: this.player.health < 35 && this.state === 'play', silence: this.silence || this.state === 'title' && false,
       indoor: this.isSheltered(this.camera.position), musicMute: this.modal === 'reveal',
     });
-    this.post.render(realDt);
+    this.post.render(this.state === 'paused' ? 0 : realDt);
     inp.endFrame();
   }
 
   handleActions(inp) {
     const P = this.player;
     if (P.health <= 0) return;
+    if (inp.pressed('Escape')) { this.pause(true); document.exitPointerLock?.(); return; }
+    if (inp.pressed('KeyM')) { this.ui.map(); this.modal = 'map'; document.exitPointerLock?.(); return; }
     // interaction prompt priority: takedown > interact > drag
     const tdCand = [...this.ai.guards, this.ai.target].find((c) => c.alive && c.pos.distanceTo(P.pos) < 1.7 && Math.abs(c.pos.y - P.pos.y) < 1.2 && c.rig.root.visible !== false);
     const acts = this.mission.interactables();

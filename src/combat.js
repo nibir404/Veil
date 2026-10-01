@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { rayBoxes, raySphere, S } from './util.js';
+import { rayBoxes, raySphere, segmentClear, S } from './util.js';
 
 export class Combat {
   constructor(game) { this.g = game; }
@@ -99,7 +99,8 @@ export class Combat {
   // Silent / contextual takedown. Works from behind, or on anyone not yet in combat.
   tryTakedown() {
     const g = this.g, P = g.player;
-    const cands = [...g.ai.guards, g.ai.target].filter((c) => c.alive && c.pos.distanceTo(P.pos) < 1.7 && Math.abs(c.pos.y - P.pos.y) < 1.2);
+    if (P.actionLock > 0 || P.climbing || P.slide || P.health <= 0) return false;
+    const cands = [...g.ai.guards, g.ai.target].filter((c) => c.alive && c.pos.distanceTo(P.pos) < 1.7 && Math.abs(c.pos.y - P.pos.y) < 1.2 && c.rig.root.visible && segmentClear(P.chest, c.pos.clone().add(new THREE.Vector3(0,1.2,0)),g.world.colliders));
     if (!cands.length) return false;
     cands.sort((a, b) => a.pos.distanceTo(P.pos) - b.pos.distanceTo(P.pos));
     const c = cands[0];
@@ -110,6 +111,7 @@ export class Combat {
       P.hurt(12, c.pos, 'melee');
     }
     P.bodyYaw = Math.atan2(-(c.pos.x - P.pos.x), -(c.pos.z - P.pos.z));
+    P.actionLock = 0.65; P.reloading = 0;
     g.audio.takedown();
     c.kill('takedown');
     P.veilCharge = Math.min(100, P.veilCharge + 18);

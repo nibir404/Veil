@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { makeHumanoid, animate, attachWeapon } from './characters.js';
 import { clamp, damp, dampAngle, lerp, rayBoxes, raySphere, S } from './util.js';
 
+import { moveBody, overlapsBody } from './physics.js';
+
 const UP = new THREE.Vector3(0, 1, 0);
 
 export const WEAPONS = {
@@ -33,7 +35,7 @@ export class Player {
     this.camPos = new THREE.Vector3();
     this.camDist = 3.4;
     this.lean = 0;
-    this.noiseT = 0;
+    this.noiseT = 0; this.jumpBuffer = 0; this.coyote = 0; this.slide = 0; this.slideCooldown = 0; this.actionLock = 0; this.reloadProgress = 0;
     attachWeapon(this.rig, null);
   }
 
@@ -81,15 +83,24 @@ export class Player {
     if (this.health <= 0) { this.deadUpdate(dt); return; }
 
     // --- stance
-    if (input.pressed('KeyC')) this.crouch = !this.crouch;
+    const canStand = !g.world.colliders.some(b => overlapsBody(this.pos, this.radius, 1.75, b, 0.05));
+    if (input.pressed('KeyC') && !this.slide) this.crouch = !this.crouch || !canStand;
     if (input.pressed('KeyV')) this.shoulder *= -1;
-    this.aiming = input.mouse[2] && !this.climbing && !this.dragging;
-    this.sprint = input.down('ShiftLeft') && !this.aiming && !this.dragging && !this.climbing;
+    this.aiming = input.mouse[2] && !this.climbing && !this.dragging && !this.slide && this.actionLock <= 0;
+    this.sprint = (input.down('ShiftLeft') || input.down('ShiftRight')) && !this.aiming && !this.dragging && !this.climbing && canStand && this.actionLock <= 0;
     if (this.sprint) this.crouch = false;
     this.lean = damp(this.lean, this.aiming && this.crouch ? 0.6 : 0, 8, dt);
 
     if (this.climbing) { this.climbUpdate(dt, input); this.animate(dt); return; }
 
+    this.slideCooldown = Math.max(0, this.slideCooldown - dt);
+    this.actionLock = Math.max(0, this.actionLock - dt);
+    this.recoil = damp(this.recoil, 0, 14, dt);
+    if (input.pressed('ControlLeft') && this.onGround && this.speed > 4 && this.slideCooldown <= 0 && !this.dragging) {
+      this.slide = 0.65; this.slideCooldown = 1.4; this.crouch = true; this.sprint = false;
+      g.audio.thud(this.pos, 0.2);
+    }
+    if (this.slide > 0) { this.slide = Math.max(0, this.slide - dt); this.crouch = true; this.sprint = false; }
     // --- move
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
@@ -103,12 +114,17 @@ export class Player {
     if (this.aiming) spd = Math.min(spd, this.crouch ? 1.3 : 2.0);
     if (this.dragging) spd = 1.3;
     if (g.world.wetness > 0.6 && this.sprint) spd *= 0.96; // wet slip
-    const accel = this.onGround ? 14 : 2.5;
+    if (this.actionLock > 0) spd = 0;
+    const accel = this.onGround ? (this.slide ? 2.0 : 18) : 3.0;
+    if (this.slide) { wish.set(this.vel.x, 0, this.vel.z).normalize(); spd = 2.1; }
     this.vel.x = damp(this.vel.x, wish.x * spd, accel, dt);
     this.vel.z = damp(this.vel.z, wish.z * spd, accel, dt);
 
     // jump / vault / climb
-    if (input.pressed('Space') && this.onGround && !this.dragging) {
+    this.coyote = this.onGround ? 0.10 : Math.max(0, this.coyote - dt);
+    this.jumpBuffer = input.pressed('Space') ? 0.12 : Math.max(0, this.jumpBuffer - dt);
+    if (this.jumpBuffer > 0 && this.coyote > 0 && !this.dragging && !this.slide && this.actionLock <= 0) {
+      this.jumpBuffer = 0; this.coyote = 0;
       const wall = this.wallAhead(wish.lengthSq() ? wish : fwd);
       if (wall && wall.box.climbable && wall.top - this.pos.y > 0.6 && wall.top - this.pos.y < 1.5) {
         this.startClimb(wall, true); // vault / mantle
@@ -119,24 +135,9 @@ export class Player {
         this.crouch = false;
       }
     }
-    // gravity
-    this.vel.y -= 20 * dt;
-    const np = this.pos.clone().addScaledVector(this.vel, dt);
-    const height = this.crouch ? 1.15 : 1.75;
-    this.collide(np, height);
-    const ground = g.world.groundAt(np.x, np.z, Math.max(this.pos.y, np.y), 0.55, 0);
-    if (np.y <= ground) {
-      if (!this.onGround) this.land(this.fallStartY - ground, np);
-      np.y = ground; this.vel.y = 0; this.onGround = true;
-    } else {
-      if (this.onGround && np.y - ground > 0.6) { this.onGround = false; this.fallStartY = this.pos.y; }
-      else if (this.onGround) { np.y = ground; this.vel.y = 0; }
-    }
-    // ceiling
-    for (const b of g.world.colliders) {
-      if (np.x > b.min.x && np.x < b.max.x && np.z > b.min.z && np.z < b.max.z && np.y + height > b.min.y && np.y < b.min.y && this.vel.y > 0) { np.y = b.min.y - height; this.vel.y = 0; }
-    }
-    this.pos.copy(np);
+    if (this.climbing) { this.animate(dt); return; }
+    const fall = moveBody(this, dt, g.world.colliders, this.crouch ? 1.15 : 1.75);
+    if (fall !== null) this.land(fall, this.pos);
 
     // body orientation: face camera when aiming, face movement otherwise
     const moveYaw = Math.atan2(-this.vel.x, -this.vel.z);
@@ -157,7 +158,7 @@ export class Player {
     }
 
     // weapons
-    this.weaponUpdate(dt, input, fwd, right);
+    // Weapons run after the current-frame camera is positioned by Game.frame().
 
     // drag body
     if (this.dragging) {
@@ -226,6 +227,7 @@ export class Player {
   weaponUpdate(dt, input, fwd, right) {
     const g = this.g;
     this.fireCd -= dt;
+    if (this.health <= 0 || this.climbing || this.actionLock > 0) return;
     if (input.pressed('Digit1') && this.current !== 'pistol') { this.current = 'pistol'; this.reloading = 0; g.ui.toast('P-9 SUPPRESSED'); }
     if (input.pressed('Digit2') && this.weapons.rifle && this.current !== 'rifle') { this.current = 'rifle'; this.reloading = 0; g.ui.toast('KR-7 CARBINE — UNSUPPRESSED'); }
     const w = this.weapon;
@@ -233,15 +235,17 @@ export class Player {
     if (!this.aiming && this.rig.weapon && this.fireCd < -1.2) attachWeapon(this.rig, null); // holster: blend in with civilians
     if (this.reloading > 0) {
       this.reloading -= dt;
+      this.reloadProgress = 1 - Math.max(0, this.reloading) / w.reload;
       if (this.reloading <= 0) { const need = w.mag - w.ammo; const take = Math.min(need, w.res); w.ammo += take; w.res -= take; g.audio.uiTick(700); }
       return;
     }
     if (input.pressed('KeyR') && w.ammo < w.mag && w.res > 0) { this.reloading = w.reload; g.audio.uiTick(500); return; }
+    this.reloadProgress = 0;
     const trigger = w.auto ? input.mouse[0] : input.mousePressed(0);
     if (this.aiming && trigger && this.fireCd <= 0) {
       if (w.ammo <= 0) { g.audio.uiTick(300); this.fireCd = 0.3; if (w.res > 0) this.reloading = w.reload; return; }
       w.ammo--;
-      this.fireCd = 60 / w.rpm;
+      this.fireCd = Math.max(0, this.fireCd) + 60 / w.rpm;
       this.fire(w, right);
     }
   }
@@ -254,18 +258,29 @@ export class Player {
     const sp = Math.max(0.0005, w.spread + moveSpread) * (g.veil.active ? 0.3 : 1);
     dir.x += (Math.random() - 0.5) * sp * 2; dir.y += (Math.random() - 0.5) * sp * 2; dir.z += (Math.random() - 0.5) * sp * 2;
     dir.normalize();
-    const origin = cam.position.clone();
-    // Start the trace past the player so we never shoot our own shoulder.
-    origin.addScaledVector(dir, this.camPos.distanceTo(this.eye) * 0.9);
-    const hit = g.combat.trace(origin, dir, 200, { from: 'player' });
+    // Aim with the camera, but resolve the actual shot from the barrel. Cover blocks it.
+    this.animate(0); this.rig.root.updateMatrixWorld(true);
     const muzzle = new THREE.Vector3();
-    if (this.rig.weapon) { this.rig.weapon.localToWorld(muzzle.copy(this.rig.weapon.userData.muzzle)); } else muzzle.copy(this.chest);
+    if (this.rig.weapon) this.rig.weapon.localToWorld(muzzle.copy(this.rig.weapon.userData.muzzle));
+    else muzzle.copy(this.chest);
+    const sight = g.combat.trace(cam.position, dir, 200);
+    const obstructionDir = muzzle.clone().sub(this.chest), muzzleDistance = obstructionDir.length();
+    const obstructed = g.combat.worldRay(this.chest, obstructionDir.normalize(), muzzleDistance);
+    let hit;
+    if (obstructed) {
+      hit = { ...obstructed, type: 'world', point: this.chest.clone().addScaledVector(obstructionDir, obstructed.t) };
+      muzzle.copy(hit.point); dir.copy(obstructionDir);
+    } else {
+      dir.copy(sight.point).sub(muzzle).normalize();
+      hit = g.combat.trace(muzzle, dir, 200);
+    }
     g.fx.muzzle(muzzle, dir, w.mesh === 'rifle', g.veil.amount);
     if (g.veil.active) g.fx.tracer(muzzle, hit.point, '#ffe6b0', 0.25);
     g.fx.casing(muzzle.clone().add(new THREE.Vector3(0, 0.03, 0)), right);
     g.audio.shot(w.mesh, muzzle, true);
     g.combat.applyHit(hit, dir, w, 'player');
     g.ai.noise(this.pos.clone(), w.noise * (w.mesh === 'rifle' ? 1 : 1 - g.weather.effective * 0.3), w.mesh === 'rifle' ? 'gunshot' : 'suppressed');
+    this.recoil = Math.min(1, this.recoil + 0.7);
     this.pitch += w.recoil * (this.crouch ? 0.6 : 1);
     this.yaw += (Math.random() - 0.5) * w.recoil * 0.6;
     g.cam.shake = Math.max(g.cam.shake, w.mesh === 'rifle' ? 0.25 : 0.08);
@@ -296,6 +311,7 @@ export class Player {
     animate(r, {
       speed: this.climbing ? 0 : this.speed, crouch: this.crouch, aim: this.aiming, climb: !!this.climbing, climbMove: this.climbMove,
       lookPitch: this.aiming ? this.pitch : 0, carry: !!this.dragging,
+      reload: this.reloading > 0 ? this.reloadProgress : 0, recoil: this.recoil, slide: this.slide > 0, airborne: !this.onGround && !this.climbing,
     }, dt);
     r.shadow.visible = this.onGround && !this.climbing;
   }

@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { canvasTex } from './util.js';
 
@@ -71,7 +72,7 @@ export class Effects {
       d.position.copy(pos).addScaledVector(normal, 0.01);
       d.lookAt(pos.clone().add(normal));
       this.scene.add(d); this.decals.push(d);
-      if (this.decals.length > 120) this.scene.remove(this.decals.shift());
+      if (this.decals.length > 120) { const old = this.decals.shift(); this.scene.remove(old); old.geometry.dispose(); }
       this.smoke(pos, 0.3, 0.8);
     }
     this.audio.impact(pos, soft);
@@ -106,13 +107,13 @@ export class Effects {
       const f = this.flashes[i]; f.t += dt;
       if (f.grow) f.s.scale.setScalar(6 + f.t * f.grow);
       f.s.material.opacity = 1 - f.t / f.life;
-      if (f.t > f.life) { this.scene.remove(f.s); this.flashes.splice(i, 1); }
+      if (f.t > f.life) { this.scene.remove(f.s); f.s.material.dispose(); this.flashes.splice(i, 1); }
     }
     this.flashLight.intensity *= Math.exp(-dt * 30);
     if (this.flashLight.intensity < 0.1) this.flashLight.distance = 12;
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const t = this.tracers[i]; t.t += dt; t.l.material.opacity = 0.9 * (1 - t.t / t.life);
-      if (t.t > t.life) { this.scene.remove(t.l); t.l.geometry.dispose(); this.tracers.splice(i, 1); }
+      if (t.t > t.life) { this.scene.remove(t.l); t.l.geometry.dispose(); t.l.material.dispose(); this.tracers.splice(i, 1); }
     }
     for (let i = this.sparks.length - 1; i >= 0; i--) {
       const s = this.sparks[i]; s.t += dt; s.v.y -= 9.8 * dt; s.m.position.addScaledVector(s.v, dt);
@@ -121,7 +122,7 @@ export class Effects {
     for (let i = this.smokes.length - 1; i >= 0; i--) {
       const s = this.smokes[i]; s.t += dt; s.s.position.addScaledVector(s.v, dt); s.s.scale.setScalar(s.size * (1 + s.t * 0.6));
       s.s.material.opacity = 0.45 * (1 - s.t / s.life);
-      if (s.t > s.life) { this.scene.remove(s.s); this.smokes.splice(i, 1); }
+      if (s.t > s.life) { this.scene.remove(s.s); s.s.material.dispose(); this.smokes.splice(i, 1); }
     }
     for (const c of this.casings) {
       if (c.resting) continue;
@@ -166,7 +167,7 @@ const VeilShader = {
       float hh = h(cell); float drop = step(0.93, hh) * smoothstep(0.22, 0.0, length(f - (vec2(h(cell+1.3),h(cell+2.7))-0.5)*0.5));
       uv += drop * f * 0.02 * lens;
       // Veil: radial time-smear and chromatic split grow toward the edges.
-      float ca = (0.0015 + veil*0.009 + hurt*0.006) * r;
+      float ca = (0.00015 + veil*0.004 + hurt*0.006) * r;
       vec2 dir = normalize(c + 1e-5);
       vec3 col;
       col.r = texture2D(tDiffuse, uv - dir*ca).r;
@@ -189,10 +190,10 @@ const VeilShader = {
       col = pow(col, vec3(1.0 + grade*0.1));
       // heartbeat pulse vignette
       float vig = smoothstep(0.35, 1.05, r);
-      col *= 1.0 - vig*(0.35 + veil*0.45 + pulse*veil*0.25);
+      col *= 1.0 - vig*(0.20 + veil*0.45 + pulse*veil*0.25);
       col = mix(col, vec3(0.35,0.0,0.0), hurt*vig*0.8);
       // film grain
-      col += (h(uv*vec2(1920.0,1080.0) + time) - 0.5) * (0.025 + veil*0.03);
+      col += (h(uv*vec2(1920.0,1080.0) + time) - 0.5) * (0.008 + veil*0.02);
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
@@ -200,15 +201,16 @@ const VeilShader = {
 export class Post {
   constructor(renderer, scene, camera) {
     this.composer = new EffectComposer(renderer);
-    this.composer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    this.composer.setPixelRatio(renderer.getPixelRatio());
     this.composer.addPass(new RenderPass(scene, camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.55, 0.6, 0.72);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.28, 0.4, 0.95);
     this.composer.addPass(this.bloom);
     this.output = new OutputPass();
     this.composer.addPass(this.output);
     // Veil pass runs after tonemapping so its grade operates on display values.
     this.veil = new ShaderPass(VeilShader);
     this.composer.addPass(this.veil);
+    this.composer.addPass(new SMAAPass(innerWidth, innerHeight));
     this.u = this.veil.uniforms;
     this.resize();
   }

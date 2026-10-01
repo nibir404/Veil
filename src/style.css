@@ -100,7 +100,52 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--dim); p
 #scope.on { opacity: 1; }
 #scope::before, #scope::after { content: ''; position: absolute; background: rgba(0,0,0,.7); }
 #scope::before { left: 50%; top: 20vh; bottom: 20vh; width: 1px; } #scope::after { top: 50%; left: 35vw; right: 35vw; height: 1px; }
-#vitals { position: absolute; left: 34px; bottom: 34px; width: 210px; }
+#minimap-wrap {
+  position: absolute;
+  left: 32px;
+  bottom: 24px;
+  width: 184px;
+  pointer-events: auto;
+  user-select: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 6;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+#minimap-wrap:hover {
+  transform: scale(1.025);
+}
+#minimap-canvas {
+  width: 184px;
+  height: 184px;
+  border-radius: 50%;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.85), inset 0 0 14px rgba(0, 0, 0, 0.6);
+  display: block;
+}
+#minimap-info {
+  margin-top: 7px;
+  text-align: center;
+  line-height: 1.25;
+  pointer-events: none;
+}
+#minimap-district {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #ff5eb5; /* Signature GTA Vice City neon pink */
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95), 0 0 12px rgba(255, 94, 181, 0.45);
+}
+#minimap-district-bn {
+  font-family: var(--bn);
+  font-size: 13px;
+  color: var(--dim);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
+
+#vitals { position: absolute; left: 236px; bottom: 32px; width: 175px; }
 .bar { height: 2px; background: rgba(255,255,255,.12); margin-bottom: 8px; position: relative; }
 .bar > div { height: 100%; background: var(--ink); transition: width .3s; }
 .hpbar.low > div { background: var(--red); animation: flick 1s infinite; }
@@ -191,3 +236,25 @@ body.cine .bars div { height: 9vh; }
 body.cine #hud { opacity: 0; transition: opacity 1s; }
 #hud { transition: opacity .6s; }
 @media (max-width: 1100px) { #keys { font-size: 9px; white-space: normal; width: 94vw; } }
+
+.quality-label { display:flex; align-items:center; gap:18px; font:11px var(--mono); letter-spacing:.18em; margin:12px 0; }
+.quality-label select { color:var(--ink); background:#182126; padding:9px 18px; border:1px solid var(--faint); font:13px var(--disp); }
+.menu small { color:var(--dim); }
+.district-map { width:min(1000px,92vw); background:#101b20; border:1px solid var(--faint); padding:24px; }
+.district-map header {display:flex;justify-content:space-between;align-items:center;font:12px var(--mono);letter-spacing:.15em;}
+#mapCanvas { width:100%; max-height:65vh; object-fit:contain; margin:18px 0; }
+.district-map p {color:var(--dim);font:10px var(--mono);line-height:1.7;}
+
+#navigation { display: none; }
+.map-mission {margin-top:20px;border-left:2px solid #d4bc8b;padding-left:14px;}
+.map-mission b {font:13px var(--mono);color:#e8d7b4;}
+.map-mission p {margin-top:8px;font:15px var(--disp);color:#d5d8cb;}
+#volume {accent-color:#aacac2;width:150px;}
+#calmAudio {accent-color:#aacac2;}
+@media(max-width:850px){
+  #minimap-wrap { left: 16px; bottom: 16px; width: 146px; }
+  #minimap-canvas { width: 146px; height: 146px; }
+  #minimap-district { font-size: 9.5px; }
+  #minimap-district-bn { font-size: 11px; }
+  #vitals { left: 178px; bottom: 20px; width: 140px; }
+}

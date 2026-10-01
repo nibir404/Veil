@@ -256,12 +256,12 @@ class Guard {
         this.crouch = false;
         if (this.route) {
           const wp = this.route[this.wp];
-          if (this.wait > 0) { this.wait -= dt; faceTo = this.lookAround(); }
+          if (this.wait > 0) { this.wait -= dt; faceTo = this.lookAround(undefined, dt); }
           else if (this.flatDist(wp) < 0.4) { this.wp = (this.wp + 1) % this.route.length; this.wait = rr(2, 5); }
           else { moveTo = wp; speed = 1.4; }
         } else {
           if (this.flatDist(this.home) > 0.6) { moveTo = this.home; speed = 1.5; }
-          else faceTo = this.lookAround(this.homeYaw);
+          else faceTo = this.lookAround(this.homeYaw, dt);
         }
         break;
       }
@@ -273,7 +273,7 @@ class Guard {
       case S.INVESTIGATION: {
         const goal = this.goal || this.lastKnown;
         if (goal && this.flatDist(goal) > 1.3 && this.stateT < 25) { moveTo = goal; speed = 2.0; }
-        else { faceTo = this.lookAround(); if (!this.searchT) this.searchT = 4.5; this.searchT -= dt; if (this.searchT <= 0) { this.searchT = 0; this.aw = Math.min(this.aw, 20); this.bias = Math.min(3, this.bias + 0.3); this.setState(S.UNKNOWN); } }
+        else { faceTo = this.lookAround(undefined, dt); if (!this.searchT) this.searchT = 4.5; this.searchT -= dt; if (this.searchT <= 0) { this.searchT = 0; this.aw = Math.min(this.aw, 20); this.bias = Math.min(3, this.bias + 0.3); this.setState(S.UNKNOWN); } }
         if (this.visible && this.aw > 25) faceTo = this.lastKnown;
         break;
       }
@@ -312,7 +312,7 @@ class Guard {
         if (!this.goal) this.goal = (this.lastKnown || this.pos).clone();
         if (this.flatDist(this.goal) > 1.2) { moveTo = this.goal; speed = this.stateT < 12 ? 3.4 : 2.1; }
         else {
-          faceTo = this.lookAround();
+          faceTo = this.lookAround(undefined, dt);
           this.searchT = (this.searchT || 3) - dt;
           if (this.searchT <= 0) {
             this.searchT = 3;
@@ -358,10 +358,10 @@ class Guard {
     else this.fireCd = 0.11;
   }
 
-  lookAround(base) {
+  lookAround(base, dt) {
     const b = base ?? this.yaw;
     if (!this._lookT || this._lookT < 0) { this._lookT = rr(1.5, 3); this._lookYaw = (base ?? this.homeYaw ?? this.yaw) + rr(-1.2, 1.2); }
-    this._lookT -= 1 / 60;
+    this._lookT -= dt;
     return this.pos.clone().add(new THREE.Vector3(-Math.sin(this._lookYaw), 0, -Math.cos(this._lookYaw)));
   }
   faceYaw(y, k, dt) { this.yaw = dampAngle(this.yaw, y, k, dt); }
@@ -634,8 +634,8 @@ export class AI {
     }
     // secure the exit: the car guard holds, one guard flanks
     const flank = this.guards.find((g) => g.alive && !g.roof && g !== src && g.state === S.HUNT);
-    if (flank && !flank.flanker) { flank.flanker = true; setTimeout(() => flank.say('flank', true), 1500); }
-    setTimeout(() => { const h = this.guards.find((g) => g.alive && g.state === S.HUNT); if (h) h.say('hunt', true); }, 2500);
+    if (flank && !flank.flanker) { flank.flanker = true; this.g.after(1.5, () => flank.say('flank', true)); }
+    this.g.after(2.5, () => { const h = this.guards.find((g) => g.alive && g.state === S.HUNT); if (h) h.say('hunt', true); });
   }
 
   onKilled(gd, how) {
@@ -658,13 +658,14 @@ export class AI {
     const spread = (0.045 + d * 0.003 + P.speed * 0.02 + (P.crouch ? 0.015 : 0) + g.weather.effective * 0.015) * settle;
     aimAt.add(new THREE.Vector3((rand() - 0.5), (rand() - 0.5) * 0.7, (rand() - 0.5)).multiplyScalar(spread * d));
     const dir = aimAt.sub(muzzle).normalize();
-    this.bullets.push({ p: muzzle.clone(), v: dir.multiplyScalar(85), life: 2.5, whizzed: false });
+    this.bullets.push({ p: muzzle.clone(), v: dir.clone().multiplyScalar(85), life: 2.5, whizzed: false });
     g.fx.muzzle(muzzle, dir, true, g.veil.amount);
     g.audio.shot('rifle', muzzle, false);
     this.noise(gd.pos.clone(), 40, 'gunshot');
   }
 
   updateBullets(dt) {
+    if (dt <= 0) return;
     const g = this.g, P = g.player, W = g.world;
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
@@ -684,9 +685,14 @@ export class AI {
       }
       if (g.veil.active) g.fx.tracer(b.p, b.p.clone().add(step.clone().multiplyScalar(-6)), '#ffd8a0', 0.03);
       if (hitP && P.health > 0) { P.hurt(g.veil.active ? 5 : 8, b.p); this.bullets.splice(i, 1); continue; }
+      // One projectile can hit only one civilian; compare against the nearest world surface.
+      let civilianHit = null, civilianT = wh ? wh.t : len;
+      for (const c of this.civilians) if (c.alive) for (const hv of c.hitVolumes()) {
+        const oc = b.p.clone().sub(hv.c), bb = oc.dot(dir), disc = bb*bb - (oc.lengthSq()-hv.r*hv.r);
+        if (disc >= 0) { const t = -bb-Math.sqrt(disc); if (t>=0 && t<civilianT) { civilianHit=c; civilianT=t; } }
+      }
+      if (civilianHit) { civilianHit.damage(); g.stats.civByEnemy++; this.bullets.splice(i,1); continue; }
       if (wh) { g.fx.impact(b.p.clone().addScaledVector(dir, wh.t), wh.normal, false); this.bullets.splice(i, 1); continue; }
-      // civilians in the crossfire
-      for (const c of this.civilians) if (c.alive && c.pos.distanceTo(b.p) < 0.4 + len) { for (const hv of c.hitVolumes()) { const oc = b.p.clone().sub(hv.c); const bb = oc.dot(dir); if (bb * bb - (oc.lengthSq() - hv.r * hv.r) >= 0 && -bb >= 0 && -bb <= len) { c.damage(); g.stats.civByEnemy++; } } }
       b.p.add(step); b.life -= dt;
       if (b.life <= 0) this.bullets.splice(i, 1);
     }
@@ -704,12 +710,12 @@ export class AI {
         gd.missingName = gd.buddy.name;
         gd.say('missing', true);
         const buddy = gd.buddy;
-        setTimeout(() => {
+        this.g.after(6, () => {
           if (!gd.alive) return;
           gd.missingName = buddy.name; gd.say('noanswer', true);
           gd.investigate(buddy.pos.clone(), 'silent');
           for (const o of this.guards) if (o.alive) o.bias = Math.min(3, o.bias + 0.8);
-        }, 6000);
+        });
         break;
       }
     }
@@ -758,14 +764,14 @@ export class AI {
     this.reinforced = true;
     const lead = this.guards.find((g) => g.alive && g.state >= S.ALERT);
     if (lead) lead.say('backup', true);
-    setTimeout(() => {
+    this.g.after(9, () => {
       for (let i = 0; i < 3; i++) {
         const gd = new Guard(this, { name: `Unit-${i + 4}`, pos: new THREE.Vector3(81 + i, 0, 45 - i * 1.5) });
         gd.lastKnown = this.g.player.pos.clone(); gd.goal = gd.lastKnown.clone(); gd.aw = 80; gd.state = S.HUNT; gd.bias = 2;
         this.guards.push(gd);
       }
       this.g.ui.speech('HANDLER', '', 'Three more coming in from the east road. Move.', 'handler');
-    }, 9000);
+    });
   }
 
   // For HUD edge indicators

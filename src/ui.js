@@ -1,5 +1,8 @@
 import * as THREE from 'three';
+import { missionNavigation, groundRoute } from './navigation.js';
+import { DHAKA_SECTORS } from './dhaka.js';
 import { S, STATES, clamp } from './util.js';
+import { Minimap } from './minimap.js';
 
 const STATE_COL = ['rgba(200,210,220,0.0)', 'rgba(230,230,220,0.9)', 'rgba(240,180,60,0.95)', 'rgba(255,120,40,1)', 'rgba(255,110,40,1)', 'rgba(235,40,40,1)'];
 const $ = (id) => document.getElementById(id);
@@ -10,11 +13,16 @@ export class UI {
     this.canvas = $('overlay');
     this.ctx = this.canvas.getContext('2d');
     this.subs = $('subs');
+    this.minimap = new Minimap(game);
     this.resize();
     this.hurtA = 0; this.hurtDir = null; this.hitT = 0;
-    this.stateShown = -1;
+    this.stateShown = -1; this.navTimer = 0;
   }
-  resize() { this.canvas.width = innerWidth * devicePixelRatio; this.canvas.height = innerHeight * devicePixelRatio; }
+  resize() {
+    this.canvas.width = innerWidth * devicePixelRatio;
+    this.canvas.height = innerHeight * devicePixelRatio;
+    if (this.minimap) this.minimap.resize();
+  }
 
   show(id, on = true) { $(id).classList.toggle('on', on); }
   objective(text, sub = '') { $('obj').innerHTML = text ? `<span class="k">OBJECTIVE</span>${text}${sub ? `<em>${sub}</em>` : ''}` : ''; $('obj').classList.remove('flash'); void $('obj').offsetWidth; $('obj').classList.add('flash'); }
@@ -51,6 +59,21 @@ export class UI {
     this.hitT -= dt;
     g.post.u.hurt.value = this.hurtA;
 
+    this.navTimer -= dt;
+    if (this.navTimer <= 0) {
+      this.navTimer = 0.3;
+      this.navigation = missionNavigation(g);
+      const n = this.navigation;
+      $('navTitle').textContent = n ? n.title : '';
+      $('navHint').textContent = n ? n.instruction : '';
+    }
+    if (this.navigation) {
+      const to = this.navigation.pos.clone().sub(P.pos);
+      $('navDistance').textContent = `${Math.round(to.length())} m`;
+      const desiredYaw = Math.atan2(-to.x, -to.z);
+      $('navArrow').style.transform = `rotate(${P.yaw-desiredYaw}rad)`;
+    }
+
     // vitals
     $('hp').style.width = `${P.health}%`;
     $('hp').parentElement.classList.toggle('low', P.health < 35);
@@ -59,7 +82,7 @@ export class UI {
     const w = P.weapon;
     $('wpn').innerHTML = `<span>${w.name}</span><b>${String(w.ammo).padStart(2, '0')}</b><i>/ ${w.res}</i>${P.reloading > 0 ? '<em>RELOADING</em>' : ''}`;
     $('wpn').classList.toggle('dim', !P.aiming && P.fireCd < -2);
-    $('stance').textContent = [P.disguised ? 'DISGUISED' : '', P.crouch ? 'LOW' : '', P.dragging ? 'CARRYING' : '', g.world.isRestricted(P.pos) ? 'RESTRICTED' : ''].filter(Boolean).join(' · ');
+    $('stance').textContent = [P.disguised ? 'DISGUISED' : '', P.crouch ? 'LOW' : '', P.dragging ? 'CARRYING' : '', P.slide ? 'SLIDING' : '', g.world.isRestricted(P.pos) ? 'RESTRICTED' : ''].filter(Boolean).join(' · ');
 
     // awareness readout: only when someone is paying attention
     const st = g.ai.squadState;
@@ -113,12 +136,46 @@ export class UI {
         ctx.globalAlpha = 1;
       }
     }
+    // GTA Vice City circular radar mini-map
+    if (g.input.pressed('KeyZ')) this.minimap.toggleZoom();
+    this.minimap.update(dt, this.navigation);
+
     // crosshair
     const xh = $('xh');
     xh.classList.toggle('on', P.aiming);
     xh.classList.toggle('hit', this.hitT > 0);
     xh.classList.toggle('kill', this.hitT > 0 && this.hitKill);
     $('scope').classList.toggle('on', P.aiming && P.current === 'rifle');
+  }
+
+  map() {
+    this.show('map');
+    const c = $('mapCanvas'), ctx = c.getContext('2d'), W = this.g.world, P = this.g.player;
+    const sx = x => (x + 90) / 180 * c.width, sz = z => (62-z)/112*c.height;
+    ctx.fillStyle = '#101b20'; ctx.fillRect(0,0,c.width,c.height);
+    ctx.fillStyle = '#243d43'; ctx.fillRect(0,sz(-43),c.width,c.height);
+    for (const b of W.buildings.filter(b=>b.q)) {
+      ctx.fillStyle = '#4a5453';ctx.fillRect(sx(b.x0),sz(b.z1),sx(b.x1)-sx(b.x0),sz(b.z0)-sz(b.z1));
+      ctx.strokeStyle = '#68726c';ctx.strokeRect(sx(b.x0),sz(b.z1),sx(b.x1)-sx(b.x0),sz(b.z0)-sz(b.z1));
+    }
+    const nav = missionNavigation(this.g);
+    const route = groundRoute(W,P.pos,nav);
+    ctx.strokeStyle='#a9d8cd';ctx.lineWidth=3;ctx.setLineDash([8,6]);
+    if(route.length){ctx.beginPath();ctx.moveTo(sx(P.pos.x),sz(P.pos.z));for(const p of route)ctx.lineTo(sx(p.x),sz(p.z));ctx.stroke();}
+    else if(nav){ctx.beginPath();ctx.moveTo(sx(P.pos.x),sz(P.pos.z));ctx.lineTo(sx(nav.pos.x),sz(nav.pos.z));ctx.stroke();}
+    ctx.setLineDash([]);
+    ctx.textAlign='center';ctx.font='12px monospace';ctx.fillStyle='#d4c9a5';
+    for(const sector of DHAKA_SECTORS)ctx.fillText(sector.name,sx(sector.x),sz(sector.z)-5);
+    const marker = (p,color,label) => {ctx.fillStyle=color;ctx.beginPath();ctx.arc(sx(p.x),sz(p.z),5,0,Math.PI*2);ctx.fill();ctx.fillText(label,sx(p.x),sz(p.z)-12);};
+    marker(P.pos,'#b5e1e0','YOU / RAVEN');
+    if(nav)marker(nav.pos,'#f5d69b',nav.kind==='entry'?'ENTER HERE · CLIMB 18 m':nav.title);
+    const spawn = {x:-74,z:5.8};marker(spawn,'#92a293','INSERTION');
+    $('mapObjective').textContent = nav ? nav.title : 'OPERATION COMPLETE';
+    $('mapInstruction').textContent = nav ? nav.instruction : 'Return to the operations archive.';
+    $('mapRouteNote').textContent = P.pos.y > 2 ? 'Dashed line: bearing only on rooftops. Check gaps and ledges before moving.' : 'Dashed line: suggested ground route. Gold marker: your next action.';
+    if(this.g.mission.targetKnown && this.g.ai.target.alive)marker(W.designed.meeting,'#d8947b','LAST KNOWN MEETING');
+    if(this.g.mission.phase==='exfil')marker(W.designed.extraction,'#9ac99e','EXTRACTION');
+    $('mapClose').onclick=()=>this.g.closeModal();
   }
 
   // ---------------------------------------------------------------- overlays
